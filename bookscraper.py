@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # Book Scraper for Data Structures and Algorithms with Object-Oriented Design Patterns in C++ @ http://www.brpreiss.com/books/opus4/
+# The index page cannot be processed as it causes recursion depth RuntimeError.
 
 from bs4 import BeautifulSoup
 from urllib2 import urlopen
