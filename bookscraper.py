@@ -2,28 +2,34 @@
 # -*- coding: utf-8 -*-
 # Book Scraper for Data Structures and Algorithms with Object-Oriented Design Patterns in C++ @ http://www.brpreiss.com/books/opus4/
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from urllib2 import urlopen
 from urllib import urlretrieve
 import traceback
 from random import randrange
-import os, re, json
-
+import os, json
+#import re, 
 from time import sleep
 import sys
 #import pdb
-#logging.basicConfig(level=INFO)
+
+from bs4.dammit import EntitySubstitution
+def uppercase_and_substitute_html_entities(string):
+    #string = string.encode('utf-8')
+    HTMFormatted = EntitySubstitution.substitute_html(string)
+    HTMFormatted = HTMFormatted.replace('\n', '')
+    #print "str = [", string , "] HTMFormatted = [", HTMFormatted, "]"
+    return HTMFormatted
 
 class Tee(object):
-
     def __init__(self, name, mode):
         print "About to create Tee object with ", name, str(mode)
 #        pdb.set_trace()
         self.file = open(name, mode)
         self.stdout = sys.stdout
-        self.stderr = sys.stderr
+        #self.stderr = sys.stderr
         sys.stdout = self
-        sys.stderr = self
+        #sys.stderr = self
 
     def close(self):
         if self.stdout != None:
@@ -43,7 +49,7 @@ class Tee(object):
         
     def write(self, data):
         self.file.write(data)
-        #self.stdout.write(data)
+        self.stdout.write(data)
         #self.stderr.write(data)
     
     def flush(self):
@@ -104,7 +110,7 @@ class BookScraper(object):
         self.crossIndex = {}
     
     def processImgTags(self, htmlWithImgTags):
-        tempSoup = BeautifulSoup(htmlWithImgTags)
+        tempSoup = BeautifulSoup(htmlWithImgTags)        
                             
         for imgTag in tempSoup.findAll("img"):
             # detect the src node and download to images folder
@@ -151,11 +157,20 @@ class BookScraper(object):
                         print "        [OK]"
                         # Now modify the original img tag to reflect the local path
                         imgTag["src"] = self.imageFolderName + "\\" + filename
-                        self.downloadCache[outpath] = True
+                        self.updateDownloadCache(outpath)
                         #if file downloaded successfully, add to cache
                         break
-                        
-        return str(tempSoup)
+        
+        strHTML = ""
+        for tagOrText in tempSoup.body.contents:
+            if(Tag == type(tagOrText)):
+                strHTML = strHTML + tagOrText.prettify(formatter=uppercase_and_substitute_html_entities)
+            else:
+                HTMFormatted = EntitySubstitution.substitute_html(tagOrText)
+                HTMFormatted = HTMFormatted.replace('\n', '')
+                strHTML = strHTML + HTMFormatted
+                            
+        return strHTML
         
     def setBasePath(self, base_url):
         self.base_url = base_url
@@ -171,6 +186,7 @@ class BookScraper(object):
         self.bookAuthor = strAuthor
        
     def parse_toc_brpreiss(self):
+        print "[START] parse_toc_brpreiss"
         book = {}
         self.toc = self.soup.find("ul")
                 
@@ -220,53 +236,12 @@ class BookScraper(object):
         print("Chapters = [" + str(chap_no) + "]")
         self.book = book
         print("book = " + str(len(self.book)))
-
-    def parse_toc(self):
-        book = {}
-        print("TOC = " + str(self.toc))
-        #    chapters = self.toc.findAll("h2")
-        chapters = self.toc.findAll("li")
-        print("chapters = " + str(chapters) + "[" + str(len(chapters)) + "]")
-        chap_no = 0;
-        for ch in chapters: # <li/> level tag, sections will be ul tag nested, <a/> will be single chapter
-            #chap_no = ch.a["name"][2:4]
-            chap_no = chap_no + 1
-            book[chap_no] = {
-            "chapter_title": ch.a.contents[1].strip(),
-            "sections": []
-            }
-            print("chap[" + chap_no+"] = " + str(book[chap_no]))
-            
-            # Find links to sections of the each chapter
-            sections = ch.findNextSibling("ul").findAll("a", href=re.compile("^ch"))
-            
-            for sec in sections:
-                sec_content = self.get_page_soup(
-                sec["href"]).find("div", "content")
-                book[chap_no]["sections"].append({
-                "href": sec["href"],
-                "section_title": sec_content.h1.contents[0],
-                "content": str(sec_content)
-                })
-        self.book = book
-        print("book = " + str(self.book))
+        print "[END] parse_toc_brpreiss"
 
     def save_json(self, filename):
         with open(filename, "w") as fn:
             json.dump(self.book, fn, indent=2)
             
-    def beautiful_soup_tag_to_unicode(self, tag):
-            # If you have more than 480 level of nested tags you can hit the maximum recursion level            
-            out=[]
-            for mystring in tag.findAll(text=None):
-#                pdb.set_trace()
-                mystring=mystring.strip()
-                if not mystring:
-                    continue
-                out.append(mystring)
-#            pdb.set_trace()
-            return u'<pre>%s</pre>' % '\n'.join(out)
-    
     def get_page_soup(self, page_path):
         retryCount = 10        
         print("Attempting to download: " + self.base_url + "[" + page_path + "]")
@@ -291,6 +266,7 @@ class BookScraper(object):
         return BeautifulSoup(htmlText)
         
     def generatePathsAndFolders(self):
+        print "[START] generatePathsAndFolders"
         self.bookFolderName = self.bookTitle + "_" + self.bookAuthor
         self.bookFolderName = self.bookFolderName.replace(" ", "_")
         self.imageFolderName = "images"
@@ -321,8 +297,15 @@ class BookScraper(object):
         for file in os.listdir(self.imageFolderPath):
             print "\t", self.imageFolderPath + '\\' + str(file)
             self.downloadCache[self.imageFolderPath + '\\' + str(file)] = 1
+            
+        print "[END] generatePathsAndFolders"
+        
+    def updateDownloadCache(self, filePath):
+        if os.path.exists(filePath):
+            self.downloadCache[filePath] = 1
     
     def generateIndexPage(self):
+        print "[START] generateIndexPage"
         template="""
         <html>
         <head>
@@ -346,18 +329,36 @@ class BookScraper(object):
             content="".join(self.indexPage))
             fn.write(to_write)
         print("wrote index!")
+        print "[END] generateIndexPage"
     
-    def updateCrossIndex(self, pageContentsSoup, pageName):
+    # pageName : refers to the original page on which the link is found
+    # chapterName: refers to the chapter file under which a sub-sction lies.
+    def updateCrossIndex(self, pageContentsSoup, pageName, chapterName):
         # Take the incoming tag
         # Find all links with name tag and update the index accordingly
         #chap is the soup. Index all the links        
-        print "#####Chapter Links: ", pageName, ":- "
+        #print "#####Chapter Links: ", pageName, ":- "
         for link in pageContentsSoup.findAll("a"):
             # if there is a name associated with the link, store it as a possible target
             anchor = link.get("name")
             if(anchor is not None):                
-                self.crossIndex[pageName + "#" + anchor] = 0 # Assuming that all pagename#AnchorName combos are unique
+                self.crossIndex[pageName + "#" + anchor] = {} # Assuming that all pagename#AnchorName combos are unique
+                self.crossIndex[pageName + "#" + anchor]["page"] = chapterName # Takes care of merging sub-sections into the chapter file
+                self.crossIndex[pageName + "#" + anchor]["anchor"] = anchor
                 
+    def resolveAnchorTags(self, tagData):
+#        tempSoup = BeautifulSoup(htmlWithAnchorTags)
+                            
+        for anchorTag in tagData.findAll("a"):
+            # detect the href node and update it based on the X-Index
+            href = anchorTag.get("href")
+            if(href is not None):
+                # <a> has href, hence updation needed
+                if(href in self.crossIndex.keys()):
+                    hrefFromXIndex = self.crossIndex[href]
+                    anchorTag["href"] = hrefFromXIndex["page"] + "#" + hrefFromXIndex["anchor"]
+        return tagData
+               
     def preprocess_html(self):
         ###################################################################################
         # Download files if not present in local downloads/ directory
@@ -366,352 +367,252 @@ class BookScraper(object):
         #        1. Complete Anchor #name
         #        2. Location Filename.
         #        3. Simple Anchor name.
-        #   Save each file as it is to the downloads/ folder
+        #   Filter by <hr/> and save each file to the downloads/ folder
+        #   For each complex chapter, we will later merge the chapter and all it sub-sections into the main Chapter file.
+        #   For all named anchors in the sub-sections, simply update the X-Index->Location Filename field to point to the main Chapter file.
         #
         # Pass#2:
-        #    For each complex chapter, we will later merge the chapter and all it sub-sections into the main Chapter file.
-        #    For all named anchors in the sub-sections, simply update the X-Index->Location Filename field to point to the main Chapter file.
-        #
-        # Pass#3:
         #    For all simple chapter files:
-        #        1. Filter by <hr/>,
-        #        2. For each link, modify the href as per the calculated X-Index.
-        #        3. Copy the contents to the final folder.
+        #        1. For each link, modify the href as per the calculated X-Index.
+        #        2. Copy the modified contents to the final folder.
         #
         #    For all complex chapter files:
-        #       1. Filter by <hr/>,
-        #       2. For each link, modify the href as per the calculated X-Index.
-        #       3. Write contents to Chapter file.
+        #       1. For each link, modify the href as per the calculated X-Index.
+        #       2. Write contents to Chapter file.
         #       4. For each sub-section file under this chapter
-        #           4.1. Filter by <hr/>,
-        #           4.2. For each link, modify the href as per the calculated X-Index.
-        #           4.3. Write contents to the main Chapter file.
+        #           4.1. For each link, modify the href as per the calculated X-Index.
+        #           4.2. Append contents to the main Chapter file.
         ###################################################################################
-        self.generatePathsAndFolders()
-#        pdb.set_trace()
+        print "[START] preprocess_html"
         
-        self.indexPage = ['<ul>'];
-#        maxChapterCounter = 5        
+        fileTemplate="""
+<html>
+<head>
+<title>{chapter}</title>
+</head>
+<body>
+<div id="content">
+{content}
+</div>
+</body>
+</html>
+"""
+        
         for chapter, ch_cont in self.book.iteritems():
-            #maxChapterCounter = maxChapterCounter -1
-            ch_no = chapter#str(chapter).rjust(2, "0")
-            #sec_to_write = ""
-            filename = ch_cont["chapter_href"].split("#")[0]
-            filepath = self.bookFolderName + '\\' + filename
-            
-            # for both simple and complex chapters first process the chapter main page, followed by sections.
 
+            chapter_filename = ch_cont["chapter_href"].split("#")[0]
+            filepath = self.downloadsFolderPath + '\\' + chapter_filename
+            
             # images in ch_cont["chapter_title"] has to be handled
             ch_cont["chapter_title"] = self.processImgTags(ch_cont["chapter_title"])
-            #sec["section_title"] = self.processImgTags(sec["section_title"])
-            
+
             blocalFile = False
             if(filepath in bs.downloadCache):
                 chap = BeautifulSoup(open(filepath).read())
                 print "Getting local file: ", filepath, "chap = ", str(chap is not None)
                 blocalFile = True
-                self.updateCrossIndex(chap, filename)
+                self.updateCrossIndex(chap, chapter_filename, chapter_filename) # Main Chapter contents
             else:                
-                chap = self.get_page_soup(filename)
+                chap = self.get_page_soup(chapter_filename)                
             
             if(chap is not None):
                 if(blocalFile == False):
-                    try:
-                        conts = str(chap)
-                    except RuntimeError as e:
-                        print(str(e))
-                        continue
-                    except IndexError as e:
-                        print(str(e))
-                        continue
+                    bs.downloadCache
+                    sec = chap.hr
+                    finalChapContents = ""                    
+                    if(len(sec.contents) > 0):
+                        #if(footer is not None):    
+                        #    footer.extract()
+                        
+                        self.updateCrossIndex(sec, chapter_filename, chapter_filename) # Main Chapter contents                        
+                        
+                        for tagOrText in sec.contents : # if u use findAll() Only Tags will get processed, all unmarked text will be lost
+                            if(Tag == type(tagOrText)):
+                                finalChapContents = finalChapContents + tagOrText.prettify(formatter=uppercase_and_substitute_html_entities)
+                            else:
+                                HTMFormatted = EntitySubstitution.substitute_html(tagOrText)
+                                HTMFormatted = HTMFormatted.replace('\n', '')
+                                finalChapContents = finalChapContents + HTMFormatted
                     else:
-                        #conts = self.beautiful_soup_tag_to_unicode(chap)
-                         continue
-                                                  
-                    chapContent = re.split("<hr>", conts)#ch_cont["chapter_href"])))                    
-                    chapContentSoup = BeautifulSoup(chapContent)
-                    #chapContent is the soup. Index all the links
-                    self.updateCrossIndex(chapContentSoup, filename)
-#                    print "Chapter Links: ", ch_cont["chapter_href"], ":- "
-#                    for link in chapContentSoup.findAll("a"):
-#                        print "\t", link.get("href")
+                        for tagOrText in sec.next_siblings:
+                            if(Tag == type(tagOrText)):
+                                if(tagOrText.name == 'hr'):
+                                    break
+                                finalChapContents = finalChapContents + tagOrText.prettify(formatter=uppercase_and_substitute_html_entities)
+                                self.updateCrossIndex(tagOrText, chapter_filename, chapter_filename) # Main Chapter contents
+                            else:
+                                HTMFormatted = EntitySubstitution.substitute_html(tagOrText)
+                                HTMFormatted = HTMFormatted.replace('\n', '')
+                                finalChapContents = finalChapContents + HTMFormatted
 
-                    contentToWrite = self.processImgTags(chapContent[1])
-            
+                    #finalChapContentsSoup = BeautifulSoup(finalChapContents)                    
                     print("Writing to " + filepath)
                     with open(filepath, "w") as fn:
-                        to_write = chapterTemplate.format(
-                        ch_no=ch_no,
-                        chapter=ch_cont["chapter_title"],                
-                        content=contentToWrite)
-                                        
+                        to_write=fileTemplate.format(
+                            chapter=ch_cont["chapter_title"],
+                            content=self.processImgTags(finalChapContents).encode('utf-8'))
+
                         fn.write(to_write)
-                        print("wrote a chapter!")
+                        self.updateDownloadCache(filepath)
+                        print "Wrote Main Chapter file: Chapter#", str(chapter)
                         
-                self.indexPage.append('<li>')
-                self.indexPage.append('<a href="' + str(filename) + '">' + str(ch_cont["chapter_title"]) + '</a>')
-            
-            #if(ch_cont["chapter_type"] == "simple"):
-            #    ch_cont["chapter_title"] = self.processImgTags(ch_cont["chapter_title"])
-            #    # images in sec["content"] has to be handled before writing
-            #    sec["section_title"] = self.processImgTags(sec["section_title"])
-            #    #self.get_page_soup(link.get("href")).find("body")
-            #    #sec["content"] has the url. Now we need to download the text and the images
-            #    sectionContent = re.split("<hr>",str(self.get_page_soup(sec["content"])))
-            #    sec["content"] = self.processImgTags(sectionContent[1])
-            #    sec_to_write = sec_to_write + sectionTemplate.format(content=sec["content"]) + "<br/>"
-            #    
-            #    self.indexPage[ch_no] = '<a href="' + str(filename) + '">' + str(ch_cont["chapter_title"]) + '</a>'
-            #else:
             if(ch_cont["chapter_type"] == "complex"):
-                #self.indexPage[ch_no] = '<a href="' + str(filename) + '">' + str(ch_cont["chapter_title"]) + '</a>'
-                self.indexPage.append('<ul>')
                 for sec in ch_cont["sections"]:
-                    # Merge sections of chapter into a single page
-                    self.indexPage.append('<li>')
-                                    
-                    # images in ch_cont["chapter_title"] has to be handled
-                    #ch_cont["chapter_title"] = self.processImgTags(ch_cont["chapter_title"])
-                    # images in sec["content"] has to be handled before writing
-                    filename = sec["href"].split("#")[0]
-                    filepath = self.bookFolderName + '\\' + filename
+                    sec_filename = sec["href"].split("#")[0]
+                    filepath = self.downloadsFolderPath + '\\' + sec_filename
                     sec["section_title"] = self.processImgTags(sec["section_title"])
                     
                     blocalFile = False
                     if(filepath in bs.downloadCache):
                         secData = BeautifulSoup(open(filepath).read())
                         print "Getting local file: ", filepath, "secData = ", str(secData is not None)
-                        blocalFile = True
-                        
-                        self.updateCrossIndex(secData, filename)
-                        #secData is the soup. Index all the links
-#                        print "#####Chapter Links: ", sec["href"], ":- "
-#                        for link in secData.findAll("a"):
-#                            print "\t#####", str(link)
+                        blocalFile = True                        
+                        self.updateCrossIndex(secData, sec_filename, chapter_filename)
                     else:
-                        secData = self.get_page_soup(filename)
+                        secData = self.get_page_soup(sec_filename)
                     
                     if(secData is not None):
                         if(blocalFile == False):
-                            sectionContent = re.split("<hr>",str(secData))#sec["content"])))
-                            sec["content"] = self.processImgTags(sectionContent[1])
-                            #sec_to_write = sectionTemplate.format(content=sec["content"]) + "<br/>"
+                            secStart = secData.hr
+                            finalSecContents = ""
                             
-                            sectionContentSoup = BeautifulSoup(sectionContent)
-                            self.updateCrossIndex(sectionContentSoup, filename)
-#                            #chap is the soup. Index all the links
-#                            print "#####Chapter Links: ", sec["href"], ":- "
-#                            for link in sectionContentSoup.findAll("a"):
-#                                print "\t#####", str(link)
-
+                            if(len(secStart.contents) > 0):
+                                #if(footer is not None):    
+                                #    footer.extract()
+                                    
+                                self.updateCrossIndex(secStart, sec_filename, chapter_filename)
+                                
+                                for tagOrText in secStart.contents : # if u use findAll() Only Tags will get processed, all unmarked text will be lost
+                                    if(Tag == type(tagOrText)):                                        
+                                        finalSecContents = finalSecContents + tagOrText.prettify(formatter=uppercase_and_substitute_html_entities)
+                                    else:
+                                        HTMFormatted = EntitySubstitution.substitute_html(tagOrText)
+                                        HTMFormatted = HTMFormatted.replace('\n', '')
+                                        finalSecContents = finalSecContents + HTMFormatted
+                            else:
+                                for tagOrText in secStart.next_siblings:
+                                    #if(tagOrText == footer):
+                                    #    break
+                                    
+                                    if(Tag == type(tagOrText)):
+                                        if(tagOrText.name == 'hr'):                                            
+                                            break
+                                        finalSecContents = finalSecContents + tagOrText.prettify(formatter=uppercase_and_substitute_html_entities)
+                                        self.updateCrossIndex(tagOrText, chapter_filename, chapter_filename) # Main Chapter contents
+                                    else:
+                                        HTMFormatted = EntitySubstitution.substitute_html(tagOrText)
+                                        HTMFormatted = HTMFormatted.replace('\n', '')
+                                        finalSecContents = finalSecContents + HTMFormatted
+                            
                             print("Writing section to :" + filepath)
                             with open(filepath, "w") as fn:
-                                to_write = sectionTemplate.format(
+                                to_write = fileTemplate.format(
                                 chapter=sec["section_title"],
-                                content=sec["content"])                        
+                                content=self.processImgTags(finalSecContents).encode('utf-8'))
                                 fn.write(to_write)
+                                self.updateDownloadCache(filepath)
                                 print("wrote a section - chapter!")
-                                
-                        self.indexPage.append('<a href="' + str(filename) + '">' + str(sec["section_title"]) + '</a>')
-                        self.indexPage.append('</li>')                
-                self.indexPage.append('</ul>')
-            self.indexPage.append('</li>')
-            ## Write one html file per chapter
-            #
-            #print("Writing to " + filepath)
-            #with open(filepath, "w") as fn:
-            #    to_write = chapterTemplate.format(
-            #    ch_no=ch_no,
-            #    chapter=ch_cont["chapter_title"],                
-            #    content=sec_to_write)
-            #    
-            #    fn.write(to_write)
-            #    print("wrote a chapter!")
-            #if( maxChapterCounter <= 0):
-            #    break
-        self.indexPage.append('</ul>')
-        self.generateIndexPage()
-
+        print "[END] preprocess_html"
+        
     def export_html(self):
+        print "[START] export_html"
         chapterTemplate="""
         <html>
         <head>
         <title>{ch_no}. {chapter}</title>
         </head>
         <body>
-        <h1>{chapter}</h1>
         {content}
         </body>
         </html>
         """
-        sectionTemplate="""
-        <html>
-        <head>
-        <title>{chapter}</title>
-        </head>
-        <body>
-        <h2>{chapter}</h2>
-        {content}
-        </body>
-        </html>
-        """        
-        self.generatePathsAndFolders()
-#        pdb.set_trace()
-        
         self.indexPage = ['<ul>'];
-#        maxChapterCounter = 5        
         for chapter, ch_cont in self.book.iteritems():
-            #maxChapterCounter = maxChapterCounter -1
-            ch_no = chapter#str(chapter).rjust(2, "0")
-            #sec_to_write = ""
-            filename = ch_cont["chapter_href"].split("#")[0]
-            filepath = self.bookFolderName + '\\' + filename
+            ch_no = chapter
+            chapter_filename = ch_cont["chapter_href"].split("#")[0]
+            fileDownloadPath = self.downloadsFolderPath + '\\' + chapter_filename
+            fileOutPath = self.bookFolderName + '\\' + chapter_filename
             
             # for both simple and complex chapters first process the chapter main page, followed by sections.
 
-            # images in ch_cont["chapter_title"] has to be handled
-            ch_cont["chapter_title"] = self.processImgTags(ch_cont["chapter_title"])
+            # images in ch_cont["chapter_title"] are already handled
+            #ch_cont["chapter_title"] = self.processImgTags(ch_cont["chapter_title"])
             #sec["section_title"] = self.processImgTags(sec["section_title"])
             
-            blocalFile = False
-            if(filepath in self.downloadCache):
-                chap = BeautifulSoup(open(filepath).read())
-                print "Getting local file: ", filepath, "chap = ", str(chap is not None)
-                blocalFile = True
-                self.updateCrossIndex(chap, filename)
-            else:                
-                chap = self.get_page_soup(filename)
+            if(fileDownloadPath in self.downloadCache):
+                chap = BeautifulSoup(open(fileDownloadPath).read())
+                print "Opening File: ", fileDownloadPath, "chap = ", str(chap is not None)
+            else:
+                print "Local File: ", fileDownloadPath, " missing...[SKIP]"
+                continue            
             
             if(chap is not None):
-                if(blocalFile == False):
-                    try:
-                        conts = str(chap)
-                    except RuntimeError as e:
-                        print(str(e))
-                        continue
-                    except IndexError as e:
-                        print(str(e))
-                        continue
-                    else:
-                        #conts = self.beautiful_soup_tag_to_unicode(chap)
-                         continue
-                                                  
-                    chapContent = re.split("<hr>", conts)#ch_cont["chapter_href"])))                    
-                    chapContentSoup = BeautifulSoup(chapContent)
-                    #chapContent is the soup. Index all the links
-                    self.updateCrossIndex(chapContentSoup, filename)
-#                    print "Chapter Links: ", ch_cont["chapter_href"], ":- "
-#                    for link in chapContentSoup.findAll("a"):
-#                        print "\t", link.get("href")
-
-                    contentToWrite = self.processImgTags(chapContent[1])
+                chap = chap.find("div", {'id': 'content'})
+                contentToWrite = (self.resolveAnchorTags(chap)).prettify(formatter=uppercase_and_substitute_html_entities)
+                
+                self.indexPage.append('<li>')
+                self.indexPage.append('<a href="' + str(chapter_filename) + '">' + str(ch_cont["chapter_title"]) + '</a>')
+                
+                ## Write one html file per simple chapter
+                print("Writing to " + fileOutPath)
+                with open(fileOutPath, "w") as fn:
+                    to_write = chapterTemplate.format(
+                        ch_no=ch_no,
+                        chapter=ch_cont["chapter_title"],                
+                        content=contentToWrite.encode('utf-8'))
+                    fn.write(to_write)
+                
+                #if(ch_cont["chapter_type"] == "simple"):                
+                #    print("Writing to " + fileOutPath)
+                #    with open(fileOutPath, "w") as fn:
+                #        to_write = chapterTemplate.format(
+                #        ch_no=ch_no,
+                #        chapter=ch_cont["chapter_title"],                
+                #        content=contentToWrite)
+                #                        
+                #        fn.write(to_write)
+                #        print("wrote a simple chapter-#", str(chapter))
             
-                    print("Writing to " + filepath)
-                    with open(filepath, "w") as fn:
+                if(ch_cont["chapter_type"] == "complex"):
+                    self.indexPage.append('<ul>')                    
+                    for sec in ch_cont["sections"]:
+                        # Merge sections of chapter into a single page
+                        self.indexPage.append('<li>')
+                                        
+                        sec_filename = sec["href"].split("#")[0]
+                        secFileDownloadPath = self.downloadsFolderPath + '\\' + sec_filename
+                        
+                        if(secFileDownloadPath in self.downloadCache):
+                            secData = BeautifulSoup(open(secFileDownloadPath).read())
+                            print "Getting local file: ", secFileDownloadPath, "secData = ", str(secData is not None)
+                        else:
+                            print "Local File: ", secFileDownloadPath, " missing...[SKIP]"
+                            continue
+                        
+                        if(secData is not None):
+                            secData = secData.find("div", {'id': 'content'})
+                            for h1Node in secData.findAll('h1'):
+                                h1Node.name = 'h2'
+                            contentToWrite = contentToWrite + (self.resolveAnchorTags(secData)).prettify(formatter=uppercase_and_substitute_html_entities)                            
+                            self.indexPage.append('<a href="' + str(chapter_filename) + "#" + sec["href"].split("#")[1] + '">' + str(sec["section_title"]) + '</a>')
+                        
+                        self.indexPage.append('</li>')
+                    self.indexPage.append('</ul>')
+                    
+                    ## Write one html file per complex chapter
+                    print("Writing to " + fileOutPath)
+                    with open(fileOutPath, "w") as fn:
                         to_write = chapterTemplate.format(
                         ch_no=ch_no,
                         chapter=ch_cont["chapter_title"],                
-                        content=contentToWrite)
-                                        
+                        content=contentToWrite.encode('utf-8'))
                         fn.write(to_write)
-                        print("wrote a chapter!")
-                        
-                self.indexPage.append('<li>')
-                self.indexPage.append('<a href="' + str(filename) + '">' + str(ch_cont["chapter_title"]) + '</a>')
-            
-            #if(ch_cont["chapter_type"] == "simple"):
-            #    ch_cont["chapter_title"] = self.processImgTags(ch_cont["chapter_title"])
-            #    # images in sec["content"] has to be handled before writing
-            #    sec["section_title"] = self.processImgTags(sec["section_title"])
-            #    #self.get_page_soup(link.get("href")).find("body")
-            #    #sec["content"] has the url. Now we need to download the text and the images
-            #    sectionContent = re.split("<hr>",str(self.get_page_soup(sec["content"])))
-            #    sec["content"] = self.processImgTags(sectionContent[1])
-            #    sec_to_write = sec_to_write + sectionTemplate.format(content=sec["content"]) + "<br/>"
-            #    
-            #    self.indexPage[ch_no] = '<a href="' + str(filename) + '">' + str(ch_cont["chapter_title"]) + '</a>'
-            #else:
-            if(ch_cont["chapter_type"] == "complex"):
-                #self.indexPage[ch_no] = '<a href="' + str(filename) + '">' + str(ch_cont["chapter_title"]) + '</a>'
-                self.indexPage.append('<ul>')
-                for sec in ch_cont["sections"]:
-                    # Merge sections of chapter into a single page
-                    self.indexPage.append('<li>')
-                                    
-                    # images in ch_cont["chapter_title"] has to be handled
-                    #ch_cont["chapter_title"] = self.processImgTags(ch_cont["chapter_title"])
-                    # images in sec["content"] has to be handled before writing
-                    filename = sec["href"].split("#")[0]
-                    filepath = self.bookFolderName + '\\' + filename
-                    sec["section_title"] = self.processImgTags(sec["section_title"])
+                self.indexPage.append('</li>')
                     
-                    blocalFile = False
-                    if(filepath in self.downloadCache):
-                        secData = BeautifulSoup(open(filepath).read())
-                        print "Getting local file: ", filepath, "secData = ", str(secData is not None)
-                        blocalFile = True
-                        
-                        self.updateCrossIndex(secData, filename)
-                        #secData is the soup. Index all the links
-#                        print "#####Chapter Links: ", sec["href"], ":- "
-#                        for link in secData.findAll("a"):
-#                            print "\t#####", str(link)
-                    else:
-                        secData = self.get_page_soup(filename)
-                    
-                    if(secData is not None):
-                        if(blocalFile == False):
-                            sectionContent = re.split("<hr>",str(secData))#sec["content"])))
-                            sec["content"] = self.processImgTags(sectionContent[1])
-                            #sec_to_write = sectionTemplate.format(content=sec["content"]) + "<br/>"
-                            
-                            sectionContentSoup = BeautifulSoup(sectionContent)
-                            self.updateCrossIndex(sectionContentSoup, filename)
-#                            #chap is the soup. Index all the links
-#                            print "#####Chapter Links: ", sec["href"], ":- "
-#                            for link in sectionContentSoup.findAll("a"):
-#                                print "\t#####", str(link)
-
-                            print("Writing section to :" + filepath)
-                            with open(filepath, "w") as fn:
-                                to_write = sectionTemplate.format(
-                                chapter=sec["section_title"],
-                                content=sec["content"])                        
-                                fn.write(to_write)
-                                print("wrote a section - chapter!")
-                                
-                        self.indexPage.append('<a href="' + str(filename) + '">' + str(sec["section_title"]) + '</a>')
-                        self.indexPage.append('</li>')                
-                self.indexPage.append('</ul>')
-            self.indexPage.append('</li>')
-            ## Write one html file per chapter
-            #
-            #print("Writing to " + filepath)
-            #with open(filepath, "w") as fn:
-            #    to_write = chapterTemplate.format(
-            #    ch_no=ch_no,
-            #    chapter=ch_cont["chapter_title"],                
-            #    content=sec_to_write)
-            #    
-            #    fn.write(to_write)
-            #    print("wrote a chapter!")
-            #if( maxChapterCounter <= 0):
-            #    break
         self.indexPage.append('</ul>')
         self.generateIndexPage()
+        print "[END] export_html"
 
-#if __name__ == "__main__":
-#  import sys
-#
-#  bs = BookScraper("http://gettingreal.37signals.com/", "toc.php")
-#  if len(sys.argv) > 1 and sys.argv[1] == "export":
-#    bs.parse_toc()
-#    bs.export_html()
-
-
-#def main():
-#import sys
-#    bs = BookScraper("http://gettingreal.37signals.com/", "toc.php")
 htmlText = """
 <ul class="contents"><li><a name="tex2html1374" href="page1.html#SECTION000100000000000000000">Colophon</a></li><li><a name="tex2html1375" href="page2.html#SECTION000200000000000000000">Dedication</a></li><li><a name="tex2html1376" href="page3.html#SECTION000300000000000000000">Preface</a><ul><li><a name="tex2html1377" href="page4.html#SECTION000310000000000000000">Goals</a></li><li><a name="tex2html1378" href="page5.html#SECTION000320000000000000000">Approach</a></li><li><a name="tex2html1379" href="page6.html#SECTION000330000000000000000">Outline</a></li><li><a name="tex2html1380" href="page7.html#SECTION000340000000000000000">Suggested Course Outline</a></li>
 <li><a name="tex2html1381" href="page8.html#SECTION000350000000000000000">Online Course Materials</a></li></ul></li><li><a name="tex2html1382" href="page10.html#SECTION002000000000000000000">Introduction</a><ul><li><a name="tex2html1383" href="page11.html#SECTION002100000000000000000">What This Book Is About</a></li><li><a name="tex2html1384" href="page12.html#SECTION002200000000000000000">Object-Oriented Design</a><ul><li><a name="tex2html1385" href="page13.html#SECTION002201000000000000000">Abstraction</a></li><li><a name="tex2html1386" href="page14.html#SECTION002202000000000000000">Encapsulation</a></li></ul></li>
@@ -733,9 +634,9 @@ print("BookScraper object = " + str(bs))
 bs.parse_toc_brpreiss()
 bs.generatePathsAndFolders()
 #pdb.set_trace()
+bs.preprocess_html()
 bs.export_html()
-
-print str(bs.crossIndex)
+#print str(bs.crossIndex)
 
 del logger
 #pdb.set_trace()
